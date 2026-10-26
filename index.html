@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Donation Leaderboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --accent: #ff2d6f; --bg: #0e0e14; --card: #17171f; --line: rgba(255,255,255,0.08);
+    --text: #fff; --muted: rgba(255,255,255,0.6); --robux: #3ddc84;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  .page { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 26px; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
+
+  .switch { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 5px; margin-top: 20px; }
+  .switch button { border: 0; border-radius: 10px; padding: 11px 0; font-weight: 700; font-size: 15px; font-family: inherit; color: var(--muted); background: none; cursor: pointer; }
+  .switch button.on { background: var(--accent); color: #fff; }
+  .switch button.on[data-kind="robux"] { background: var(--robux); color: #0b2a17; }
+
+  .periods { display: flex; gap: 6px; margin-top: 12px; overflow-x: auto; scrollbar-width: none; }
+  .periods::-webkit-scrollbar { display: none; }
+  .periods button { flex: 1 0 auto; border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; font-weight: 600; font-size: 14px; font-family: inherit; color: var(--muted); background: var(--card); cursor: pointer; white-space: nowrap; }
+  .periods button.on { color: var(--text); border-color: var(--text); }
+
+  .raised { margin-top: 18px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; position: relative; overflow: hidden; }
+  .raised::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--k, var(--accent)); }
+  .raised .label { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+  .raised .big { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+  .search { width: 100%; margin-top: 14px; padding: 11px 14px; font-weight: 500; font-size: 15px; font-family: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  .search:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+  .list { margin-top: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); font-size: 15px; font-weight: 600; }
+  .row:first-child { border-top: 0; }
+  .rank { width: 30px; flex: none; text-align: center; color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .medal { width: 26px; height: 26px; margin: 0 2px; border-radius: 50%; display: grid; place-items: center; color: #14141a; font-size: 13px; font-weight: 800; }
+  .row.top { padding: 15px 16px; font-size: 17px; }
+  .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .name.deleted { color: var(--muted); font-style: italic; }
+  .amt { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .amt.robux { color: var(--robux); }
+  .empty { padding: 28px 16px; text-align: center; color: var(--muted); font-weight: 600; }
+  .foot { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Donation leaderboard</h1>
+  <div class="sub">Thanks to everyone who supports the stream</div>
+
+  <div class="switch" id="kinds">
+    <button data-kind="robux">Robux</button>
+    <button data-kind="money">Money</button>
+  </div>
+  <div class="periods" id="periods">
+    <button data-period="today">Today</button>
+    <button data-period="week">This week</button>
+    <button data-period="month">This month</button>
+    <button data-period="alltime">All time</button>
+  </div>
+
+  <div class="raised" id="raisedBox">
+    <div class="label" id="raisedLabel">Raised</div>
+    <div class="big" id="raised">–</div>
+  </div>
+
+  <input class="search" id="search" type="search" placeholder="Find your name" autocomplete="off">
+  <div class="list" id="list"><div class="empty">Loading…</div></div>
+  <div class="foot"><span id="updated"></span> Weeks start on Monday.</div>
+</div>
+<script>
+  // Works both on this PC (/board) and online (GitHub Pages): either way it reads data.json next to it
+  // and builds the lists itself, so Today / This week / This month stay right even while the PC is off.
+  const PERIOD_NAMES = { today: 'today', week: 'this week', month: 'this month', alltime: 'all time' };
+  const MEDALS = ['#f5c542', '#c0c6cf', '#cd7f32'];
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = n => '$' + (n >= 100 ? Math.round(n).toLocaleString('en-US') : n.toFixed(2).replace(/\.00$/, ''));
+  const robux = n => 'R$ ' + Math.round(n).toLocaleString('en-US');
+
+  // The choice lives in the link (#robux-alltime), so a shared link opens the same list.
+  let [kind, period] = (location.hash.slice(1) || 'robux-alltime').split('-');
+  if (!['robux', 'money'].includes(kind)) kind = 'robux';
+  if (!PERIOD_NAMES[period]) period = 'alltime';
+  let data = null;
+
+  // Midnight (today), Monday midnight (week) or the 1st (month) in the streamer's time zone.
+  function periodStart(p, tz) {
+    if (p === 'alltime') return 0;
+    try {
+      const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: 'numeric', day: 'numeric',
+        hour: 'numeric', minute: 'numeric', second: 'numeric', hourCycle: 'h23', weekday: 'short' });
+      const parts = t => Object.fromEntries(fmt.formatToParts(t).map(x => [x.type, x.value]));
+      const offset = t => { const q = parts(t); return Date.UTC(+q.year, +q.month - 1, +q.day, +q.hour, +q.minute, +q.second) - Math.floor(t / 1000) * 1000; };
+      const now = parts(Date.now());
+      let day = +now.day;
+      if (p === 'week') day -= ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].indexOf(now.weekday);
+      if (p === 'month') day = 1;
+      const wall = Date.UTC(+now.year, +now.month - 1, day);
+      return wall - offset(wall - offset(wall));
+    } catch {
+      const d = new Date(); d.setHours(0, 0, 0, 0);
+      if (p === 'week') d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      if (p === 'month') d.setDate(1);
+      return d.getTime();
+    }
+  }
+
+  function board(k, p) {
+    const since = periodStart(p, data.tz), totals = new Map();
+    let raised = 0;
+    for (const d of data.donations) {
+      if (d.ts < since || (k === 'robux') !== (d.unit === 'robux')) continue;
+      const v = k === 'robux' ? d.amount : d.usd;
+      raised += v;
+      if (d.hidden) continue; // earlier donations count toward the total but aren't a person
+      const key = d.uid || d.user.toLowerCase();
+      const t = totals.get(key) || { user: d.user, v: 0 };
+      t.v += v;
+      totals.set(key, t);
+    }
+    const list = [...totals.values()].sort((a, b) => b.v - a.v).slice(0, 100).map((u, i) => ({ ...u, rank: i + 1 }));
+    return { list, raised };
+  }
+
+  function ago(ts) {
+    const m = Math.round((Date.now() - ts) / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m} min ago`;
+    const h = Math.round(m / 60);
+    return h < 24 ? `${h} hour${h > 1 ? 's' : ''} ago` : new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
+  function render() {
+    document.querySelectorAll('#kinds button').forEach(b => b.classList.toggle('on', b.dataset.kind === kind));
+    document.querySelectorAll('#periods button').forEach(b => b.classList.toggle('on', b.dataset.period === period));
+    document.getElementById('raisedBox').style.setProperty('--k', kind === 'robux' ? 'var(--robux)' : 'var(--accent)');
+    if (!data) return;
+    const { list: all, raised } = board(kind, period);
+    const fmt = kind === 'robux' ? robux : money;
+    document.getElementById('raisedLabel').textContent = `${kind === 'robux' ? 'Robux' : 'Money'} raised ${PERIOD_NAMES[period]}`;
+    document.getElementById('raised').textContent = fmt(raised);
+    document.getElementById('updated').textContent = `Last updated ${ago(data.updated)}.`;
+
+    const q = document.getElementById('search').value.trim().toLowerCase();
+    const list = q ? all.filter(u => u.user.toLowerCase().includes(q)) : all;
+    document.getElementById('list').innerHTML = list.length ? list.map(u => `
+      <div class="row ${u.rank <= 3 ? 'top' : ''}">
+        ${u.rank <= 3 ? `<span class="rank"><span class="medal" style="background:${MEDALS[u.rank - 1]}">${u.rank}</span></span>` : `<span class="rank">${u.rank}</span>`}
+        <span class="name ${u.user === 'deleted' ? 'deleted' : ''}">${esc(u.user)}</span>
+        <span class="amt ${kind === 'robux' ? 'robux' : ''}">${fmt(u.v)}</span>
+      </div>`).join('')
+      : `<div class="empty">${q ? 'No one by that name on this list.' : `No ${kind === 'robux' ? 'Robux' : 'money'} donations ${PERIOD_NAMES[period]} yet. Be the first!`}</div>`;
+  }
+
+  document.getElementById('kinds').onclick = e => { const b = e.target.closest('button'); if (b) { kind = b.dataset.kind; go(); } };
+  document.getElementById('periods').onclick = e => { const b = e.target.closest('button'); if (b) { period = b.dataset.period; go(); } };
+  document.getElementById('search').oninput = render;
+  function go() { history.replaceState(null, '', '#' + kind + '-' + period); render(); }
+
+  async function load() {
+    try {
+      const r = await fetch('data.json?t=' + Date.now(), { cache: 'no-store' });
+      if (r.ok) { data = await r.json(); render(); }
+    } catch { /* keep the last list */ }
+    if (!data) document.getElementById('list').innerHTML = '<div class="empty">Couldn’t load the leaderboard. Try refreshing in a minute.</div>';
+  }
+  render();
+  load();
+  setInterval(load, 60000);
+  setInterval(render, 60000); // rolls over to a new day / week / month on its own
+</script>
+</body>
+</html>
